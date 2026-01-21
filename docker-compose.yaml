@@ -1,0 +1,75 @@
+services:
+  sporteefit-db:
+    platform: linux/amd64
+    image: postgres:17.2-alpine3.21
+    ports:
+      - "5432:5432" # Expose the database port to the host
+    volumes:
+      - dev-db-data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=devdb
+      - POSTGRES_USER=devuser
+      - POSTGRES_PASSWORD=changeme
+    networks:
+      - appnet
+
+  sporteefit-backend:
+    platform: linux/amd64
+    build:
+      context: ./backend
+      args:
+        - DEV=true
+    container_name: sporteefit-backend
+    ports:
+      - "8000:8000" # Expose the app port to the host
+    volumes:
+      - ./backend:/app
+      - dev-static-data:/vol/web
+    command: >
+      sh -c "python manage.py wait_for_db &&
+        python manage.py migrate &&
+        python manage.py runserver 0.0.0.0:8000"
+    environment:
+      - DEBUG=1
+      - USE_SPACES=0
+      - DB_HOST=sporteefit-db       
+      - DB_NAME=devdb
+      - DB_USER=devuser
+      - DB_PASS=changeme
+      - STATIC_URL=/files/static/
+      - MEDIA_URL=/files/media/
+      - STATIC_ROOT=/vol/web/static
+      - MEDIA_ROOT=/vol/web/media
+      - MAIL_USER=noreply@xuzmonomi.com
+      - MAIL_HOST=mail.privateemail.com
+      - MAIL_PASS=plyreno(Up2D8!)
+      - PROJECT=Test
+    depends_on: 
+      - sporteefit-db
+    networks:
+      - appnet
+
+  sporteefit-proxy:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: ./proxy/Dockerfile
+      args:
+        - DEV=true
+    container_name: sporteefit-proxy
+    ports:
+      - "80:80"
+    environment:
+      - BACKEND_HOST=sporteefit-backend
+      - BACKEND_PORT=8000
+    depends_on:
+      - sporteefit-backend
+    networks:
+      - appnet
+
+volumes:
+  dev-db-data:
+  dev-static-data:
+
+networks:
+  appnet:

@@ -1,0 +1,92 @@
+services: 
+  db:
+    image: postgres:17.2-alpine3.21
+    container_name: db
+    restart: always
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASS}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - appnet
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+    container_name: backend
+    restart: always
+    command: >
+      sh -c "python manage.py migrate &&
+             python manage.py collectstatic --noinput &&
+             gunicorn app.wsgi:application --bind 0.0.0.0:8000"
+    volumes:
+      - static-data:/vol/web
+    environment:
+      DEBUG: 0
+      USE_SPACES: 1
+      DB_HOST: db
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASS: ${DB_PASS}
+      SECRET_KEY: ${DJANGO_SECRET}
+      ALLOWED_HOSTS: ${DJANGO_HOSTS}
+      SB_KEY: ${SB_KEY}
+      SB_NAME: ${SB_NAME}
+      SB_SECRET: ${SB_SECRET}
+      SB_ENDPOINT_URL: ${SB_ENDPOINT_URL}
+      MAIL_USER: ${MAIL_USER}
+      MAIL_PASS: ${MAIL_PASS}
+      MAIL_HOST: ${MAIL_HOST}
+      ADMIN_NAMES: ${ADMIN_NAMES}
+      ADMIN_EMAILS: ${ADMIN_EMAILS}
+    expose:
+      - "8000"
+    depends_on: 
+      - db
+    networks:
+      - appnet
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  proxy:
+    build:
+      context: .
+      dockerfile: ./proxy/Dockerfile
+    container_name: proxy
+    restart: always
+    ports:
+      - "80:80"
+    environment:
+      VITE_API_URL: http://backend:8000
+    volumes:
+      - static-data:/usr/share/nginx/html/static  # match Django STATIC_ROOT
+    depends_on:
+      backend:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+    networks:
+      - appnet
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres-data:
+  static-data:
+
+networks:
+  appnet:
+    driver: bridge
